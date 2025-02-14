@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import Any, Dict, List, Optional
 from dataclasses import dataclass, field
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, create_model
 from pydantic_ai import Agent, RunContext
 from rich.console import Console
 from rich.prompt import Prompt, Confirm
@@ -107,30 +107,35 @@ def display_table_data(table_def: TableDefinition, data: List[Dict[str, Any]]):
     console.print(table)
 
 def create_dynamic_model(table_def: TableDefinition) -> type[BaseModel]:
-    """Create a Pydantic model dynamically based on the table definition"""
-    fields = {}
-    for col in table_def.columns:
-        # Convert string type names to actual types
-        type_map = {
-            'str': str,
-            'int': int,
-            'float': float,
-            'bool': bool,
-            'list': list,
-            'dict': dict
-        }
-        python_type = type_map.get(col.type.lower(), str)
-        fields[col.name] = (python_type, Field(..., description=col.description))
+    """Create a Pydantic model dynamically based on the table definition using create_model"""
+    # Convert string type names to actual types
+    type_map = {
+        'str': str,
+        'int': int,
+        'float': float, 
+        'bool': bool,
+        'list': list,
+        'dict': dict
+    }
     
-    # Create the model with model_config including arbitrary_types_allowed
-    model = type(table_def.name, (BaseModel,), {
-        '__annotations__': fields,
-        'model_config': ConfigDict(
+    # Build fields dictionary for create_model
+    fields = {
+        col.name: (
+            type_map.get(col.type.lower(), str), 
+            Field(..., description=col.description)
+        )
+        for col in table_def.columns
+    }
+    
+    # Use Pydantic's create_model helper
+    return create_model(
+        table_def.name,
+        __config__=ConfigDict(
             title=table_def.name,
             arbitrary_types_allowed=True
-        )
-    })
-    return model
+        ),
+        **fields
+    )
 
 async def main():
     state = TableGenerationState(
