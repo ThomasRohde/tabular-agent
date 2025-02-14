@@ -21,12 +21,18 @@ class TableDefinition(BaseModel):
     description: str = Field(..., description="Description of what this table represents")
     columns: List[ColumnDefinition] = Field(..., description="List of column definitions")
 
+class SubjectList(BaseModel):
+    """List of subjects to generate table entries for"""
+    subjects: List[str] = Field(..., description="List of specific subjects/categories to generate table entries for")
+    context: str = Field(..., description="Explanation of how these subjects are derived from the table structure")
+
 @dataclass
 class TableGenerationState:
     prompt: str
     table_definition: Optional[TableDefinition] = None
     dynamic_model: Optional[type[BaseModel]] = None
     table_data: Optional[List[Dict[str, Any]]] = None
+    subject_list: Optional[SubjectList] = None
     model_messages: list = field(default_factory=list)
 
 # Agent for generating table structure
@@ -69,6 +75,25 @@ Return a list of dictionaries where each dictionary represents a row of data.
 Make sure all values match the required types from the column definitions.
 DO NOT include any markdown formatting, code blocks, or explanatory text.
 Return ONLY the raw Python code that creates the list of dictionaries.
+""",
+    result_type=str
+)
+
+# Agent for analyzing table structure and generating subject categories
+subject_generator = Agent(
+    'openai:gpt-4',
+    system_prompt="""You are an expert at analyzing data structures and categorization.
+Based on the provided table definition and its columns, determine meaningful categories based on how the data can be divided.
+
+You MUST return ONLY raw Python code that creates a SubjectList instance without any extra text, markdown, or code blocks.
+
+Example output format:
+SubjectList(
+    subjects=["Category 1", "Category 2", "Category 3"],
+    context="These categories represent X division of the data"
+)
+
+DO NOT include any explanations, comments, or formatting - just the raw Python code for creating the SubjectList instance.
 """,
     result_type=str
 )
@@ -158,37 +183,99 @@ async def main():
         # Display the table structure
         display_table_definition(state.table_definition)
         
-        # Ask for feedback
         if Confirm.ask("\nIs this table structure ok?"):
             break
             
-        # If not ok, get feedback and update prompt
         feedback = Prompt.ask("What changes would you like to make?")
         state.prompt += f"\nChanges requested: {feedback}"
         state.model_messages = table_code.new_messages()
     
     # Create dynamic Pydantic model
     state.dynamic_model = create_dynamic_model(state.table_definition)
-    
-    # Generate table data
-    data_code = await data_generator.run(
-        f"""Generate a list of 5 rows of data for this table:
-Table Name: {state.table_definition.name}
-Description: {state.table_definition.description}
-Columns:
-{chr(10).join(f'- {col.name} ({col.type}): {col.description}' for col in state.table_definition.columns)}
 
-Return only Python code that creates a list of dictionaries."""
-    )
+    # Generate subject categories based on table structure
+    while True:
+        try:
+            subjects_code = await subject_generator.run(
+                f"""Analyze this table structure and determine meaningful categories for dividing the data in categories in multiple iterations. Typically this will be based on the natural taxonomy of the names of the subject matter in the table.
+                Consider the columns and their types to identify natural groupings.
+                
+                Table Name: {state.table_definition.name}
+                Description: {state.table_definition.description}
+                
+                Columns:
+                {chr(10).join(f'- {col.name} ({col.type}): {col.description}' for col in state.table_definition.columns)}
+                
+                Original prompt: {state.prompt}
+                
+                Return ONLY the raw Python code for a SubjectList instance."""
+            )
+            
+            # Test parse the code before executing
+            code = subjects_code.data.strip()
+            if not code.startswith('SubjectList(') or not code.endswith(')'):
+                raise ValueError("Invalid SubjectList format")
+                
+            # Execute the subjects code
+            namespace = {'SubjectList': SubjectList}
+            exec(f"subject_list = {code}", namespace)
+            state.subject_list = namespace['subject_list']
+            
+            # Validate we got at least one subject
+            if not state.subject_list.subjects:
+                raise ValueError("No subjects generated")
+                
+            break
+        except Exception as e:
+            console.print(f"[red]Error generating categories: {e}[/red]")
+            if not Confirm.ask("Retry category generation?"):
+                return
+
+    # Display generated categories
+    console.print("\nGenerated Categories:")
+    for subject in state.subject_list.subjects:
+        console.print(f"- {subject}")
+    console.print(f"\nCategorization Context: {state.subject_list.context}")
+
+    if not Confirm.ask("\nAre these categories ok?"):
+        return
     
-    # Execute the data code to get the table data
-    namespace = {}
-    exec(f"data = {data_code.data}", namespace)
-    state.table_data = namespace['data']
+    # Generate table data for each category
+    all_data = []
+    for subject in state.subject_list.subjects:
+        data_code = await data_generator.run(
+            f"""Generate entries for the category: {subject}
+            
+            Context: {state.subject_list.context}
+            
+            Table Name: {state.table_definition.name}
+            Description: {state.table_definition.description}
+            
+            Current Category: {subject}
+            Generate entries that specifically fit into this category.
+            
+            Required Columns:
+            {chr(10).join(f'- {col.name} ({col.type}): {col.description}' for col in state.table_definition.columns)}
+            
+            Rules:
+            1. Generate entries that clearly belong to the category "{subject}"
+            2. Ensure all entries are consistent with the category classification
+            3. Return only Python code for a list of dictionaries
+            4. Each dictionary should contain all required columns
+            5. Do not include any explanatory text or code blocks
+            """
+        )
+        
+        # Execute the data code to get the table data
+        namespace = {}
+        exec(f"data = {data_code.data}", namespace)
+        subject_data = namespace['data']
+        all_data.extend(subject_data)
     
-    # Validate and display the data
+    # Validate and display all data
+    state.table_data = all_data
     validated_data = [state.dynamic_model(**row) for row in state.table_data]
-    console.print("\nGenerated Data:")
+    console.print(f"\nGenerated Data ({len(validated_data)} entries):")
     display_table_data(state.table_definition, state.table_data)
 
 if __name__ == "__main__":
