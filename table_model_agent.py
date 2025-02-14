@@ -169,6 +169,9 @@ async def main():
     )
     
     while True:
+        # Log the table definition prompt
+        console.print("[blue]model_generator prompt:[/blue]", state.prompt)
+        
         # Generate table definition
         table_code = await model_generator.run(
             f"Generate a TableDefinition for: {state.prompt}\n"
@@ -206,7 +209,7 @@ async def main():
     # Generate expanded subject categories based on table structure and user input
     while True:
         try:
-            # Generate expanded categories
+            # Generate expanded categories prompt
             prompt = (
                 f"Table: {state.table_definition.name}\n"
                 f"Description: {state.table_definition.description}\n"
@@ -214,6 +217,9 @@ async def main():
                 "Generate a SubjectList instance that expands these categories while maintaining "
                 "relevance to the table structure. Include the initial categories plus related ones."
             )
+            
+            # Log the subject generator prompt
+            console.print("[blue]subject_generator prompt:[/blue]", prompt)
             
             subject_result = await subject_generator.run(prompt)
             
@@ -270,8 +276,7 @@ async def main():
         for i, subject in enumerate(state.subject_list.subjects, 1):
             status.update(f"[bold green]Processing category {i}/{len(state.subject_list.subjects)}: {subject}")
             
-            data_code = await data_generator.run(
-                f"""Generate entries for the category: {subject}
+            data_prompt = f"""Generate entries for the category: {subject}
                 Table: {state.table_definition.name}
                 Description: {state.table_definition.description}
                 
@@ -285,7 +290,11 @@ async def main():
                 
                 Return ONLY a Python list of dictionaries with these exact column names and types.
                 """
-            )
+            
+            # Log the data generator prompt
+            console.print("[blue]data_generator prompt for subject:[/blue]", subject, "\n", data_prompt)
+            
+            data_code = await data_generator.run(data_prompt)
             
             try:
                 # Execute the data code
