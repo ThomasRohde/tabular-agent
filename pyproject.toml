@@ -6,5 +6,8 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "click>=8.1.8",
+    "crawl4ai>=0.4.248",
+    "pydantic-ai>=0.0.24",
+    "python-dotenv>=1.0.1",
     "rich>=13.9.4",
 ]
