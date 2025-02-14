@@ -263,39 +263,128 @@ async def main():
     
     # Generate table data for each category
     all_data = []
-    for subject in state.subject_list.subjects:
-        data_code = await data_generator.run(
-            f"""Generate entries for the category: {subject}
+    total_entries = 0
+    validation_errors = []
+
+    with console.status(f"[bold green]Generating data for {len(state.subject_list.subjects)} categories...") as status:
+        for i, subject in enumerate(state.subject_list.subjects, 1):
+            status.update(f"[bold green]Processing category {i}/{len(state.subject_list.subjects)}: {subject}")
             
-            Context: {state.subject_list.context}
+            data_code = await data_generator.run(
+                f"""Generate entries for the category: {subject}
+                Table: {state.table_definition.name}
+                Description: {state.table_definition.description}
+                
+                Rules:
+                1. Values MUST match these EXACT types:
+                {chr(10).join(f'   - {col.name}: {col.type} ({col.description})' for col in state.table_definition.columns)}
+                2. For 'int' type, use whole numbers only (e.g. 1, 2, 3)
+                3. For 'float' type, decimals are allowed
+                4. For 'bool' type, use True/False only
+                5. For 'str' type, use text strings
+                
+                Return ONLY a Python list of dictionaries with these exact column names and types.
+                """
+            )
             
-            Table Name: {state.table_definition.name}
-            Description: {state.table_definition.description}
+            try:
+                # Execute the data code
+                namespace = {}
+                exec(f"data = {data_code.data}", namespace)
+                subject_data = namespace['data']
+                
+                # Validate and convert each row
+                valid_rows = []
+                for row_idx, row in enumerate(subject_data):
+                    try:
+                        converted_row = {}
+                        for col in state.table_definition.columns:
+                            value = row.get(col.name)
+                            if value is None:
+                                raise ValueError(f"Missing required column: {col.name}")
+                            
+                            # Strict type conversion
+                            if col.type.lower() == 'int':
+                                if isinstance(value, float):
+                                    if value.is_integer():
+                                        value = int(value)
+                                    else:
+                                        raise ValueError(f"Column {col.name} requires an integer, got {value}")
+                                elif isinstance(value, str):
+                                    value = int(value)
+                            elif col.type.lower() == 'float':
+                                value = float(value)
+                            elif col.type.lower() == 'bool':
+                                if isinstance(value, str):
+                                    value = value.lower() in ('true', '1', 'yes', 'y')
+                                else:
+                                    value = bool(value)
+                            elif col.type.lower() == 'str':
+                                value = str(value)
+                                
+                            converted_row[col.name] = value
+                            
+                        # Validate with the model
+                        validated_row = state.dynamic_model(**converted_row)
+                        valid_rows.append(validated_row.model_dump())
+                        
+                    except Exception as e:
+                        validation_errors.append(f"Category '{subject}' Row {row_idx + 1}: {str(e)}")
+                        continue
+                
+                all_data.extend(valid_rows)
+                total_entries += len(valid_rows)
+                console.print(f"✓ Added {len(valid_rows)} valid entries for {subject}")
+                
+            except Exception as e:
+                console.print(f"[red]Error processing category {subject}: {str(e)}[/red]")
+                continue
             
-            Current Category: {subject}
-            Generate entries that specifically fit into this category.
-            
-            Required Columns:
-            {chr(10).join(f'- {col.name} ({col.type}): {col.description}' for col in state.table_definition.columns)}
-            
-            Rules:
-            1. Generate entries that clearly belong to the category "{subject}"
-            2. Ensure all entries are consistent with the category classification
-            3. Return only Python code for a list of dictionaries
-            4. Each dictionary should contain all required columns
-            5. Do not include any explanatory text or code blocks
-            """
-        )
-        
-        # Execute the data code to get the table data
-        namespace = {}
-        exec(f"data = {data_code.data}", namespace)
-        subject_data = namespace['data']
-        all_data.extend(subject_data)
+            # Show progress
+            status.update(f"[bold green]Progress: {total_entries} total valid entries ({i}/{len(state.subject_list.subjects)} categories)")
     
-    # Validate and display all data
+    # Show validation summary
+    if validation_errors:
+        console.print("\n[yellow]Validation Summary:[/yellow]")
+        for error in validation_errors[:5]:
+            console.print(f"- {error}")
+        if len(validation_errors) > 5:
+            console.print(f"...and {len(validation_errors) - 5} more errors")
+    
+    if not all_data:
+        console.print("[red]No valid data was generated. Exiting...[/red]")
+        return
+        
     state.table_data = all_data
-    validated_data = [state.dynamic_model(**row) for row in state.table_data]
+    console.print(f"\n[green]Successfully generated {len(all_data)} valid entries across {len(state.subject_list.subjects)} categories[/green]")
+    console.print(f"\nGenerated Data Sample (showing up to 10 entries):")
+    display_table_data(state.table_definition, all_data[:10])
+    
+    if len(all_data) > 10:
+        console.print(f"\n[dim]...and {len(all_data) - 10} more entries[/dim]")
+
+    console.print("\nValidating generated data...")
+    validated_data = []
+    validation_errors = []
+    
+    for i, row in enumerate(state.table_data):
+        try:
+            validated_row = state.dynamic_model(**row)
+            validated_data.append(validated_row)
+        except Exception as e:
+            validation_errors.append(f"Row {i + 1}: {str(e)}")
+    
+    if validation_errors:
+        console.print("[red]Some entries failed validation:[/red]")
+        for error in validation_errors[:5]:  # Show first 5 errors
+            console.print(f"- {error}")
+        if len(validation_errors) > 5:
+            console.print(f"...and {len(validation_errors) - 5} more errors")
+        if not Confirm.ask("Continue with valid entries only?"):
+            return
+    
+    state.table_data = [row.model_dump() for row in validated_data]
+    console.print(f"\n[green]Successfully generated {len(validated_data)} valid entries[/green]")
     console.print(f"\nGenerated Data ({len(validated_data)} entries):")
     display_table_data(state.table_definition, state.table_data)
 
