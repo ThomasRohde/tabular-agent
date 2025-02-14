@@ -83,14 +83,15 @@ Return ONLY the raw Python code that creates the list of dictionaries.
 subject_generator = Agent(
     'openai:gpt-4',
     system_prompt="""You are an expert at analyzing data structures and categorization.
-Based on the provided table definition and its columns, determine meaningful categories based on how the data can be divided.
+Based on the provided table definition, its columns, and user-provided initial categories,
+expand and refine the categorization to create a complete list of relevant categories.
 
 You MUST return ONLY raw Python code that creates a SubjectList instance without any extra text, markdown, or code blocks.
 
 Example output format:
 SubjectList(
     subjects=["Category 1", "Category 2", "Category 3"],
-    context="These categories represent X division of the data"
+    context="These categories represent X division of the data, expanded from user suggestions"
 )
 
 DO NOT include any explanations, comments, or formatting - just the raw Python code for creating the SubjectList instance.
@@ -193,42 +194,62 @@ async def main():
     # Create dynamic Pydantic model
     state.dynamic_model = create_dynamic_model(state.table_definition)
 
-    # Generate subject categories based on table structure
+    # Get initial categories from user
+    while True:
+        console.print("\nPlease provide some initial categories for the data (comma-separated):")
+        initial_categories = [cat.strip() for cat in Prompt.ask("Categories").split(",") if cat.strip()]
+        
+        if initial_categories:
+            break
+        console.print("[red]Please enter at least one category[/red]")
+
+    # Generate expanded subject categories based on table structure and user input
     while True:
         try:
-            subjects_code = await subject_generator.run(
-                f"""Analyze this table structure and determine meaningful categories for dividing the data in categories in multiple iterations. Typically this will be based on the natural taxonomy of the names of the subject matter in the table.
-                Consider the columns and their types to identify natural groupings.
-                
-                Table Name: {state.table_definition.name}
-                Description: {state.table_definition.description}
-                
-                Columns:
-                {chr(10).join(f'- {col.name} ({col.type}): {col.description}' for col in state.table_definition.columns)}
-                
-                Original prompt: {state.prompt}
-                
-                Return ONLY the raw Python code for a SubjectList instance."""
+            # Generate expanded categories
+            prompt = (
+                f"Table: {state.table_definition.name}\n"
+                f"Description: {state.table_definition.description}\n"
+                f"Initial categories: {', '.join(initial_categories)}\n\n"
+                "Generate a SubjectList instance that expands these categories while maintaining "
+                "relevance to the table structure. Include the initial categories plus related ones."
             )
             
-            # Test parse the code before executing
-            code = subjects_code.data.strip()
-            if not code.startswith('SubjectList(') or not code.endswith(')'):
-                raise ValueError("Invalid SubjectList format")
-                
-            # Execute the subjects code
-            namespace = {'SubjectList': SubjectList}
-            exec(f"subject_list = {code}", namespace)
-            state.subject_list = namespace['subject_list']
+            subject_result = await subject_generator.run(prompt)
             
-            # Validate we got at least one subject
-            if not state.subject_list.subjects:
-                raise ValueError("No subjects generated")
+            # Clean and validate the generated code
+            generated_code = subject_result.data.strip()
+            if not generated_code.startswith('SubjectList('):
+                raise ValueError("Invalid generated code format")
+            
+            # Create a safe namespace and execute
+            namespace = {'SubjectList': SubjectList}
+            try:
+                exec(f"result = {generated_code}", namespace)
+                generated_list = namespace['result']
                 
-            break
+                # Ensure it's a valid SubjectList instance
+                if not isinstance(generated_list, SubjectList):
+                    raise ValueError("Generated result is not a SubjectList")
+                    
+                # Merge with initial categories and remove duplicates
+                all_subjects = list(dict.fromkeys(
+                    initial_categories + generated_list.subjects
+                ))
+                
+                # Create final subject list
+                state.subject_list = SubjectList(
+                    subjects=all_subjects,
+                    context=generated_list.context
+                )
+                break
+                
+            except Exception as e:
+                raise ValueError(f"Failed to process generated categories: {str(e)}")
+                
         except Exception as e:
-            console.print(f"[red]Error generating categories: {e}[/red]")
-            if not Confirm.ask("Retry category generation?"):
+            console.print(f"[red]Error in category generation: {str(e)}[/red]")
+            if not Confirm.ask("Would you like to retry?"):
                 return
 
     # Display generated categories
