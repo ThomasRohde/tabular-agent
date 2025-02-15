@@ -13,4 +13,5 @@ dependencies = [
     "pydantic-ai>=0.0.24",
     "python-dotenv>=1.0.1",
     "rich>=13.9.4",
+    "tavily-python>=0.5.1",
 ]
