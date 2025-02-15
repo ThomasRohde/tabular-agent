@@ -204,18 +204,16 @@ async def main():
         
         if initial_categories:
             break
-        console.print("[red]Please enter at least one category[/red]")
+        console.print("[red]Please enter at least three categories[/red]")
 
     # Generate expanded subject categories based on table structure and user input
     while True:
         try:
             # Generate expanded categories prompt
             prompt = (
-                f"Table: {state.table_definition.name}\n"
-                f"Description: {state.table_definition.description}\n"
-                f"Initial categories: {', '.join(initial_categories)}\n\n"
-                "Generate a SubjectList instance that expands these categories while maintaining "
-                "relevance to the table structure. Include the initial categories plus related ones."
+                f"We want to create a dataset with the following description: {state.table_definition.description}\n"
+                f"The intention is to divide the dataset according to categories similar to: {', '.join(initial_categories)}\n\n"
+                "Can you please generate a list of categories that would be relevant for this dataset?"
             )
             
             # Log the subject generator prompt
