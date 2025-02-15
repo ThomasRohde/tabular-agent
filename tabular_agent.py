@@ -2,12 +2,14 @@ from __future__ import annotations
 import signal
 from typing import Any, Dict, List, Optional
 from dataclasses import dataclass, field
+from duckduckgo_search import DDGS
 from pydantic import BaseModel, Field, ConfigDict, create_model
-from pydantic_ai import Agent
+from pydantic_ai import Agent, RunContext
 from rich.console import Console
 from rich.prompt import Prompt, Confirm
 from rich.table import Table
 import pandas as pd
+import datetime
 
 console = Console()
 
@@ -116,16 +118,40 @@ Return ONLY the Python object for the TableDefinition instance.""",
 # Agent for generating subject categories
 subject_generator = Agent(
     'openai:gpt-4',
-    system_prompt="""You are an expert at data categorization.
-Based on the provided table definition and initial categories, generate a complete list of relevant categories.
+    system_prompt="""You are an expert at data categorization with the ability to search the internet.
+Based on the provided table definition, initial categories, and internet search results, generate a comprehensive and well-researched list of relevant categories.
+
+When generating categories:
+1. Consider the initial categories provided
+2. Analyze the search results to identify additional relevant categories
+3. Ensure all categories are logically related to the table's purpose
+
 Return ONLY raw Python code that creates a SubjectList instance.
 Example:
 SubjectList(
     subjects=["Category 1", "Category 2", "Category 3"],
-    context="Expanded from user suggestions"
+    context="Expanded from user suggestions and research"
 )""",
     result_type=SubjectList
 )
+
+@dataclass
+class SearchDataclass:
+    max_results: int
+    todays_date: str
+
+@subject_generator.tool
+def search_duckduckgo(search_data:RunContext[SearchDataclass],query: str) -> List[str]:
+    """Perform a DuckDuckGo search and return relevant snippets."""
+    console.print(f"Searching DuckDuckGo for: {query}")
+    try:
+        with DDGS() as ddgs:
+            results = list(ddgs.text(query, max_results=search_data.deps.max_results))
+            return [result['body'] for result in results if 'body' in result]
+    except Exception as e:
+        console.print(f"[yellow]Search warning: {str(e)}[/yellow]")
+        return []
+
 
 async def main():
     state = TableGenerationState(
@@ -157,15 +183,21 @@ async def main():
             break
         console.print("[red]Please enter at least one category[/red]")
     
+    current_date = datetime.date.today()
+
+    # Convert the date to a string
+    date_string = current_date.strftime("%Y-%m-%d")
+    deps = SearchDataclass(max_results=5, todays_date=date_string)
+
     # Generate expanded subject categories
     while True:
         try:
             prompt = (
                 f"We want to create a dataset with the following description: {state.table_definition.description}\n"
                 f"Divide the dataset into categories similar to: {', '.join(initial_categories)}\n\n"
-                "Please generate a list of relevant categories."
+                "Based on the provided description, initial categories, and research, generate a comprehensive list of relevant categories."
             )
-            subject_result = await subject_generator.run(prompt)
+            subject_result = await subject_generator.run(prompt, deps=deps)
             generated_list = subject_result.data
             if not isinstance(generated_list, SubjectList):
                 raise ValueError("Generated result is not a SubjectList")

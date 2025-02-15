@@ -7,6 +7,7 @@ requires-python = ">=3.13"
 dependencies = [
     "click>=8.1.8",
     "crawl4ai>=0.4.248",
+    "duckduckgo-search>=7.3.2",
     "openpyxl>=3.1.5",
     "pandas>=2.2.3",
     "pydantic-ai>=0.0.24",
