@@ -1,7 +1,7 @@
 [project]
 name = "tabular-agent"
 version = "0.1.0"
-description = "Add your description here"
+description = "An AI-powered tool for generating table structures and sample data using GPT models, featuring interactive structure generation, data type inference, and dynamic Pydantic model creation"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [

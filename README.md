@@ -21,7 +21,7 @@ pip install -r requirements.txt
 Run the main script:
 
 ```bash
-python table_model_agent.py
+python tabular_agent.py
 ```
 
 The tool will:
@@ -36,16 +36,6 @@ Example prompt:
 > Enter your requirements for the table data
 Create a table for tracking employee performance reviews
 ```
-
-## Dependencies
-
-- pydantic
-- rich
-- pydantic-ai (custom wrapper for OpenAI API)
-
-## Contributing
-
-Pull requests are welcome. For major changes, please open an issue first to discuss what you would like to change.
 
 ## License
 
