@@ -1,4 +1,5 @@
 from __future__ import annotations
+import signal
 from typing import Any, Dict, List, Optional
 from dataclasses import dataclass, field
 from pydantic import BaseModel, Field, ConfigDict, create_model
@@ -288,6 +289,17 @@ Return ONLY a JSON array of objects with these keys and types.
             df.to_excel(excel_path, index=False)
             console.print(f"[green]Data successfully saved to {excel_path}[/green]")
 
+def handle_sigint(signum, frame):
+    print("\nShutting down...")
+    raise KeyboardInterrupt
+
 if __name__ == "__main__":
     import asyncio
-    asyncio.run(main())
+    
+    # Set up signal handler for CTRL-C
+    signal.signal(signal.SIGINT, handle_sigint)
+    
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\nProcess terminated by user")
