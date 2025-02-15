@@ -2,10 +2,11 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 from dataclasses import dataclass, field
 from pydantic import BaseModel, Field, ConfigDict, create_model
-from pydantic_ai import Agent, RunContext
+from pydantic_ai import Agent
 from rich.console import Console
 from rich.prompt import Prompt, Confirm
 from rich.table import Table
+import pandas as pd
 
 console = Console()
 
@@ -132,7 +133,6 @@ async def main():
     
     # Loop until the user confirms the table structure
     while True:
-        console.print("[blue]model_generator prompt:[/blue]", state.prompt)
         response = await model_generator.run(
             f"Generate a TableDefinition for: {state.prompt}",
             message_history=state.model_messages
@@ -242,11 +242,6 @@ Return ONLY a JSON array of objects with these keys and types.
         return
 
     state.table_data = all_data
-    console.print(f"\n[green]Successfully generated {len(all_data)} valid entries across {len(state.subject_list.subjects)} categories[/green]")
-    console.print("\nGenerated Data Sample (showing up to 10 entries):")
-    display_table_data(state.table_definition, all_data[:10])
-    if len(all_data) > 10:
-        console.print(f"\n[dim]...and {len(all_data) - 10} more entries[/dim]")
 
     console.print("\nValidating generated data...")
     validated_data = []
@@ -269,6 +264,15 @@ Return ONLY a JSON array of objects with these keys and types.
     console.print(f"\n[green]Successfully generated {len(validated_data)} valid entries[/green]")
     console.print("\nGenerated Data:")
     display_table_data(state.table_definition, state.table_data)
+
+    # Ask if user wants to save to Excel
+    if Confirm.ask("\nWould you like to save the data to an Excel file?"):
+        filename = Prompt.ask("Enter the Excel filename (without .xlsx extension)")
+        if filename:
+            df = pd.DataFrame(state.table_data)
+            excel_path = f"{filename}.xlsx"
+            df.to_excel(excel_path, index=False)
+            console.print(f"[green]Data successfully saved to {excel_path}[/green]")
 
 if __name__ == "__main__":
     import asyncio
