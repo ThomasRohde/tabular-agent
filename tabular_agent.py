@@ -2,7 +2,6 @@ from __future__ import annotations
 import signal
 from typing import Any, Dict, List, Optional
 from dataclasses import dataclass, field
-from duckduckgo_search import DDGS
 from pydantic import BaseModel, Field, ConfigDict, create_model
 from pydantic_ai import Agent, RunContext
 from rich.console import Console
@@ -10,6 +9,15 @@ from rich.prompt import Prompt, Confirm
 from rich.table import Table
 import pandas as pd
 import datetime
+from dotenv import load_dotenv
+import os
+from tavily import TavilyClient
+
+# Load environment variables
+load_dotenv()
+
+# Initialize Tavily client
+tavily_client = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
 
 console = Console()
 
@@ -141,17 +149,26 @@ class SearchDataclass:
     todays_date: str
 
 @subject_generator.tool
-def search_duckduckgo(search_data:RunContext[SearchDataclass],query: str) -> List[str]:
-    """Perform a DuckDuckGo search and return relevant snippets."""
-    console.print(f"Searching DuckDuckGo for: {query}")
+async def search_data(search_data: RunContext[SearchDataclass], query: str) -> List[str]:
+    """Perform a Tavily search and return relevant snippets."""
+    console.print(f"Searching Tavily for: {query}")
     try:
-        with DDGS() as ddgs:
-            results = list(ddgs.text(query, max_results=search_data.deps.max_results))
-            return [result['body'] for result in results if 'body' in result]
+        # Using the synchronous method since Tavily's async support seems inconsistent
+        results = tavily_client.search(
+            query=query,
+            search_depth="basic",
+            topic="general",
+            max_results=search_data.deps.max_results
+        )
+        # Extract snippets from results
+        snippets = []
+        if isinstance(results, dict) and 'results' in results:
+            snippets = [result.get('content', '') for result in results['results']]
+        console.print(f"Found {len(snippets)} relevant snippets")
+        return snippets
     except Exception as e:
         console.print(f"[yellow]Search warning: {str(e)}[/yellow]")
         return []
-
 
 async def main():
     state = TableGenerationState(
@@ -227,7 +244,7 @@ async def main():
             f"Changes requested: {feedback}\n"
             "Please generate an updated list of categories."
         )
-        subject_result = await subject_generator.run(prompt, message_history=subject_messages)
+        subject_result = await subject_generator.run(prompt, message_history=subject_messages, deps=deps)
         generated_list = subject_result.data
         state.subject_list = generated_list
         subject_messages = subject_result.new_messages()
