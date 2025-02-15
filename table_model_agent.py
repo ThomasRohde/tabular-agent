@@ -164,7 +164,6 @@ async def main():
                 f"Divide the dataset into categories similar to: {', '.join(initial_categories)}\n\n"
                 "Please generate a list of relevant categories."
             )
-            console.print("[blue]subject_generator prompt:[/blue]", prompt)
             subject_result = await subject_generator.run(prompt)
             generated_list = subject_result.data
             if not isinstance(generated_list, SubjectList):
@@ -177,12 +176,28 @@ async def main():
             if not Confirm.ask("Would you like to retry?"):
                 return
 
-    console.print("\nGenerated Categories:")
-    for subject in state.subject_list.subjects:
-        console.print(f"- {subject}")
-    console.print(f"\nCategorization Context: {state.subject_list.context}")
-    if not Confirm.ask("\nAre these categories ok?"):
-        return
+    # Loop until the user confirms the categories
+    subject_messages = []
+    while True:
+        console.print("\nGenerated Categories:")
+        for subject in state.subject_list.subjects:
+            console.print(f"- {subject}")
+        console.print(f"\nCategorization Context: {state.subject_list.context}")
+        
+        if Confirm.ask("\nAre these categories ok?"):
+            break
+            
+        feedback = Prompt.ask("What changes would you like to make to the categories?")
+        prompt = (
+            f"We want to create a dataset with the following description: {state.table_definition.description}\n"
+            f"Current categories: {', '.join(state.subject_list.subjects)}\n"
+            f"Changes requested: {feedback}\n"
+            "Please generate an updated list of categories."
+        )
+        subject_result = await subject_generator.run(prompt, message_history=subject_messages)
+        generated_list = subject_result.data
+        state.subject_list = generated_list
+        subject_messages = subject_result.new_messages()
 
     # Create a new data generator agent that returns a list of dynamic_model instances.
     from typing import List as TList
@@ -217,7 +232,6 @@ Rules:
 
 Return ONLY a JSON array of objects with these keys and types.
 """
-            console.print("[blue]data_generator prompt for subject:[/blue]", subject, "\n", data_prompt)
             data_response = await dynamic_data_generator.run(data_prompt)
             try:
                 # data_response.data is already a list of dynamic_model instances (validated by Pydantic)
