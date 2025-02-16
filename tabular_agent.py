@@ -129,7 +129,7 @@ Return ONLY the Python object for the TableDefinition instance.""",
 
 # Agent for generating subject categories
 subject_generator = Agent(
-    'openai:gpt-4',
+    'openai:gpt-4o-mini',
     system_prompt="""You are an expert at data categorization with the ability to search the internet.
 Based on the provided table definition, initial categories, and internet search results, generate a comprehensive and well-researched list of relevant categories.
 
