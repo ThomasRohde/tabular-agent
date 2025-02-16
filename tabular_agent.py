@@ -3,7 +3,7 @@ import signal
 from typing import Any, Dict, List, Optional
 from dataclasses import dataclass, field
 from pydantic import BaseModel, Field, ConfigDict, create_model
-from pydantic_ai import Agent, RunContext
+from pydantic_ai import Agent, RunContext, Tool
 from rich.console import Console
 from rich.prompt import Prompt, Confirm
 from rich.table import Table
@@ -12,6 +12,7 @@ import datetime
 from dotenv import load_dotenv
 import os
 from tavily import TavilyClient
+from rich import print
 import asyncio  # added if not already imported
 
 # Load environment variables
@@ -21,6 +22,33 @@ load_dotenv()
 tavily_client = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
 
 console = Console()
+
+@dataclass
+class SearchDataclass:
+    max_results: int
+    todays_date: str
+
+async def search_data(search_data: RunContext[SearchDataclass], query: str) -> List[str]:
+    """Perform a web search and return relevant snippets."""
+    console.print(f"Searching web for: {query}")
+    try:
+        results = tavily_client.search(
+            query=query,
+            search_depth="basic",
+            include_answer="advanced",
+            topic="general",
+            max_results=search_data.deps.max_results
+        )
+        # Extract snippets from results
+        snippets = [results.get('answer')] if results.get('answer', False) else []
+        console.print(f"\nQuery: {query} Answer: {results.get('answer')}")
+        if isinstance(results, dict) and 'results' in results:
+            snippets = [result.get('content', '') for result in results['results']]
+        console.print(f"Found {len(snippets)} relevant snippets")
+        return snippets
+    except Exception as e:
+        console.print(f"[yellow]Search warning: {str(e)}[/yellow]")
+        return []
 
 # Add constant for maximum threads concurrency
 MAX_THREADS = 3
@@ -124,7 +152,8 @@ TableDefinition(
     ]
 )
 Return ONLY the Python object for the TableDefinition instance.""",
-    result_type=TableDefinition
+    result_type=TableDefinition,
+    tools=[Tool(search_data, takes_ctx=True)]
 )
 
 # Agent for generating subject categories
@@ -144,36 +173,9 @@ SubjectList(
     subjects=["Category 1", "Category 2", "Category 3"],
     context="Expanded from user suggestions and research"
 )""",
-    result_type=SubjectList
+    result_type=SubjectList,
+    tools=[Tool(search_data, takes_ctx=True)]
 )
-
-@dataclass
-class SearchDataclass:
-    max_results: int
-    todays_date: str
-
-@model_generator.tool
-@subject_generator.tool
-async def search_data(search_data: RunContext[SearchDataclass], query: str) -> List[str]:
-    """Perform a Tavily search and return relevant snippets."""
-    console.print(f"Searching Tavily for: {query}")
-    try:
-        # Using the synchronous method since Tavily's async support seems inconsistent
-        results = tavily_client.search(
-            query=query,
-            search_depth="basic",
-            topic="general",
-            max_results=search_data.deps.max_results
-        )
-        # Extract snippets from results
-        snippets = []
-        if isinstance(results, dict) and 'results' in results:
-            snippets = [result.get('content', '') for result in results['results']]
-        console.print(f"Found {len(snippets)} relevant snippets")
-        return snippets
-    except Exception as e:
-        console.print(f"[yellow]Search warning: {str(e)}[/yellow]")
-        return []
 
 async def main():
     state = TableGenerationState(
@@ -276,7 +278,7 @@ Each object must have exactly the following keys with values of the correct type
 {chr(10).join(f' - {col.name}: {col.type}' for col in state.table_definition.columns)}
 Return ONLY the JSON data.""",
         result_type=TList[state.dynamic_model],
-        tools=[search_data]
+        tools=[Tool(search_data, takes_ctx=True)]
     )
 
     all_data = []
