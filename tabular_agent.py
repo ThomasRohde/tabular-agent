@@ -191,6 +191,18 @@ async def main():
         state.model_messages = response.new_messages()
     
     # Build the dynamic model using Pydantic's create_model
+    state.table_definition = TableDefinition(
+        name=state.table_definition.name,
+        description=state.table_definition.description,
+        columns=[
+            ColumnDefinition(
+                name="subject",
+                type="str",
+                description="Category or subject of this entry"
+            ),
+            *state.table_definition.columns
+        ]
+    )
     state.dynamic_model = create_dynamic_model(state.table_definition)
     
     # Get initial categories from the user
@@ -286,8 +298,12 @@ Return ONLY a JSON array of objects with these keys and types.
 """
             data_response = await dynamic_data_generator.run(data_prompt, deps=deps)
             try:
-                # data_response.data is a list of dynamic_model instances (validated by Pydantic)
-                valid_rows = [row.model_dump() for row in data_response.data]
+                # Add subject to each row and validate
+                valid_rows = []
+                for row in data_response.data:
+                    row_dict = row.model_dump()
+                    row_dict['subject'] = subject
+                    valid_rows.append(row_dict)
                 all_data.extend(valid_rows)
                 total_entries += len(valid_rows)
                 console.print(f"✓ Added {len(valid_rows)} valid entries for {subject}")
