@@ -39,11 +39,18 @@ async def search_data(search_data: RunContext[SearchDataclass], query: str) -> L
             topic="general",
             max_results=search_data.deps.max_results
         )
-        # Extract snippets from results
-        snippets = [results.get('answer')] if results.get('answer', False) else []
-        console.print(f"\nQuery: {query} Answer: {results.get('answer')}")
+        
+        # Extract snippets from results including URL
         if isinstance(results, dict) and 'results' in results:
-            snippets = [result.get('content', '') for result in results['results']]
+            snippets = [
+                f"{result.get('content', '')}\nURL: {result.get('url', 'N/A')}"
+                for result in results['results']
+            ]
+        elif results.get('answer'):
+            snippets = [f"{results.get('answer')}\nURL: {results.get('url', 'N/A')}"]
+        else:
+            snippets = []
+        
         console.print(f"Found {len(snippets)} relevant snippets")
         return snippets
     except Exception as e:
