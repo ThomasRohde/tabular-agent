@@ -58,7 +58,7 @@ async def search_data(search_data: RunContext[SearchDataclass], query: str) -> L
         return []
 
 # Add constant for maximum threads concurrency
-MAX_THREADS = 3
+MAX_THREADS = 5
 
 class ColumnDefinition(BaseModel):
     """Definition of a single column in the table"""

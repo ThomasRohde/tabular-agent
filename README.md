@@ -9,6 +9,8 @@ An AI-powered tool for generating table structures and sample data using GPT mod
 - Dynamic Pydantic model creation
 - Sample data generation matching the table structure
 - Rich console output with formatted tables
+- Extracts snippet content along with its URL
+- Concurrency for data generation
 
 ## Installation
 
