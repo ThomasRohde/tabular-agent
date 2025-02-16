@@ -148,6 +148,7 @@ class SearchDataclass:
     max_results: int
     todays_date: str
 
+@model_generator.tool
 @subject_generator.tool
 async def search_data(search_data: RunContext[SearchDataclass], query: str) -> List[str]:
     """Perform a Tavily search and return relevant snippets."""
@@ -258,7 +259,8 @@ Generate a JSON array of objects that match the table structure.
 Each object must have exactly the following keys with values of the correct type:
 {chr(10).join(f' - {col.name}: {col.type}' for col in state.table_definition.columns)}
 Return ONLY the JSON data.""",
-        result_type=TList[state.dynamic_model]
+        result_type=TList[state.dynamic_model],
+        tools=[search_data]
     )
 
     all_data = []
@@ -282,9 +284,9 @@ Rules:
 
 Return ONLY a JSON array of objects with these keys and types.
 """
-            data_response = await dynamic_data_generator.run(data_prompt)
+            data_response = await dynamic_data_generator.run(data_prompt, deps=deps)
             try:
-                # data_response.data is already a list of dynamic_model instances (validated by Pydantic)
+                # data_response.data is a list of dynamic_model instances (validated by Pydantic)
                 valid_rows = [row.model_dump() for row in data_response.data]
                 all_data.extend(valid_rows)
                 total_entries += len(valid_rows)
