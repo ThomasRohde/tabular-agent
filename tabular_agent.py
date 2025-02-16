@@ -12,6 +12,7 @@ import datetime
 from dotenv import load_dotenv
 import os
 from tavily import TavilyClient
+import asyncio  # added if not already imported
 
 # Load environment variables
 load_dotenv()
@@ -20,6 +21,9 @@ load_dotenv()
 tavily_client = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
 
 console = Console()
+
+# Add constant for maximum threads concurrency
+MAX_THREADS = 3
 
 class ColumnDefinition(BaseModel):
     """Definition of a single column in the table"""
@@ -279,9 +283,12 @@ Return ONLY the JSON data.""",
     total_entries = 0
     validation_errors = []
 
-    with console.status(f"[bold green]Generating data for {len(state.subject_list.subjects)} categories...") as status:
-        for i, subject in enumerate(state.subject_list.subjects, 1):
-            status.update(f"[bold green]Processing category {i}/{len(state.subject_list.subjects)}: {subject}")
+    # Parallelize data generation using asyncio.gather with a semaphore for limiting concurrency
+    semaphore = asyncio.Semaphore(MAX_THREADS)
+    
+    async def process_subject(subject: str, index: int) -> list:
+        async with semaphore:
+            console.print(f"[bold green]Processing category {index}/{len(state.subject_list.subjects)}: {subject}")
             data_prompt = f"""Generate entries for the category: {subject}
 Table: {state.table_definition.name}
 Description: {state.table_definition.description}
@@ -297,20 +304,25 @@ Rules:
 Return ONLY a JSON array of objects with these keys and types.
 """
             data_response = await dynamic_data_generator.run(data_prompt, deps=deps)
+            valid_rows = []
             try:
-                # Add subject to each row and validate
-                valid_rows = []
                 for row in data_response.data:
                     row_dict = row.model_dump()
                     row_dict['subject'] = subject
                     valid_rows.append(row_dict)
-                all_data.extend(valid_rows)
-                total_entries += len(valid_rows)
                 console.print(f"✓ Added {len(valid_rows)} valid entries for {subject}")
             except Exception as e:
                 console.print(f"[red]Error processing category {subject}: {str(e)}[/red]")
-                continue
-            status.update(f"[bold green]Progress: {total_entries} total valid entries ({i}/{len(state.subject_list.subjects)} categories)")
+            return valid_rows
+
+    with console.status(f"[bold green]Generating data for {len(state.subject_list.subjects)} categories...") as status:
+        tasks = [asyncio.create_task(process_subject(subject, idx))
+                 for idx, subject in enumerate(state.subject_list.subjects, 1)]
+        results = await asyncio.gather(*tasks)
+        for res in results:
+            all_data.extend(res)
+            total_entries += len(res)
+        status.update(f"[bold green]Progress: {total_entries} total valid entries")
     
     if validation_errors:
         console.print("\n[yellow]Validation Summary:[/yellow]")
